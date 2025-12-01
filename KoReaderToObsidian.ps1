@@ -1,16 +1,15 @@
 # Modify these paths to match your environment.
-$BookNotes =  Get-ChildItem -Recurse -Path "V:\Repositories\Personal\KoReaderHighlightsImport\Inbox" -Filter "*.json"
-$OutputFolder = "V:\Obsidian Vaults\SynapseGarden\INBOX\"
+$BookNotes =  Get-ChildItem -Recurse -Path "PathToYourExportsFolder" -Filter "*.json"
+$OutputFolder = "PathToYourDestinationFolder"
 
 foreach ($BookNote in $BookNotes)
 {
     $NoteContent = Get-Content -Path $BookNote.FullName -Raw | ConvertFrom-Json
 
-
-    # check if our file has been proceses previously
+    # check if our file has been processed previously
     if ($NoteContent.processed -eq $true)
     {
-        write-warning "skipping $($NoteContent.title) it has been processed already"
+        Write-Warning "skipping $($NoteContent.title) it has been processed already"
         continue
     }
 
@@ -23,9 +22,8 @@ foreach ($BookNote in $BookNotes)
     $FullObsidianNotePath = "$OutputFolder\$($BookTitle).md"
     New-Item -Path $FullObsidianNotePath -ItemType File -Force | Out-Null
 
-    
-    # add our frontmatter
-    Add-Content -Path $FullObsidianNotePath -value @"
+    # Add frontmatter
+    Add-Content -Path $FullObsidianNotePath -Value @"
 ---
 title: $BookTitle
 synapse garden: false
@@ -42,53 +40,92 @@ timestamp: $(Get-Date -Format "yyyy-MM-ddTHH:mm:ss")
 ---
 "@
 
-    # add our title, author, and pages
-    Add-Content -Path $FullObsidianNotePath -value "# $BookTitle"
-    Add-Content -Path $FullObsidianNotePath -value "**Author**: $BookAuthor"
-    Add-Content -Path $FullObsidianNotePath -value "**Pages**: $BookPages `n"
-    Add-Content -Path $FullObsidianNotePath -value "---"
+    # Add title, author, and pages
+    Add-Content -Path $FullObsidianNotePath -Value "# $BookTitle"
+    Add-Content -Path $FullObsidianNotePath -Value "**Author**: $BookAuthor"
+    Add-Content -Path $FullObsidianNotePath -Value "**Pages**: $BookPages `n"
+    Add-Content -Path $FullObsidianNotePath -Value "---"
 
-
-    # get our unique chapters so we can work on chapter basis
+    # Unique chapters
     $Chapters = $NoteContent.entries.chapter | Get-Unique
 
     foreach ($Chapter in $Chapters)
     {
-        # Chapter header
         Add-Content -Path $FullObsidianNotePath -Value "## Chapter: $Chapter`n"
 
-        # Table header
+        # HTML table with dark-mode styling changes the colors to your liking
         Add-Content -Path $FullObsidianNotePath -Value @"
-| Highlight | Page | Date | Time | Note |
-|----------|------|------|------|------|
+<style>
+table.booknotes {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1em;
+  font-size: 0.9em;
+}
+table.booknotes th {
+  background-color: #222;
+  color: #eee;
+  padding: 8px;
+  border-bottom: 1px solid #444;
+}
+table.booknotes td {
+  padding: 8px;
+  border-bottom: 1px solid #333;
+  vertical-align: top;
+}
+table.booknotes tr:nth-child(even) {
+  background-color: #1a1a1a;
+}
+table.booknotes tr:nth-child(odd) {
+  background-color: #111;
+}
+table.booknotes {
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 0 6px rgba(0,0,0,0.4);
+}
+</style>
+
+<table class="booknotes">
+<thead>
+<tr>
+  <th>Highlight</th>
+  <th>Page</th>
+  <th>Date</th>
+  <th>Time</th>
+  <th>Note</th>
+</tr>
+</thead>
+<tbody>
 "@
 
-        # Entries for the chapter
-        $ChapterEntries = $NoteContent.entries | Where-Object { $_.chapter -eq $Chapter } |Sort-Object { $_.time }
+        # Chapter entries sorted by timestamp
+        $ChapterEntries = $NoteContent.entries | Where-Object { $_.chapter -eq $Chapter } | Sort-Object { $_.time }
 
         foreach ($Entry in $ChapterEntries)
         {
-            # Handle potential empty notes
+            # Handle empty notes
             $EntryNote = if ($Entry.note) { $Entry.note } else { "N/A" }
 
-            # Convert our unix time to date and time
+            # Convert unix timestamp
             $Date = Get-Date -UnixTimeSeconds $Entry.time -Format "yyyy-MM-dd"
             $Time = Get-Date -UnixTimeSeconds $Entry.time -Format "HH:mm:ss"
 
-
-            # Convert multiline highlights into <br> and escape table pipes
+            # Fix multiline and escape HTML
             $HighlightText = ($Entry.text -replace '\r?\n', '<br>') -replace '\|', '\`|'
+            $SafeNote      = ($EntryNote -replace '\r?\n', '<br>') -replace '\|', '\`|'
 
-            # Same for notes if they can be multiline
-            $SafeNote = ($EntryNote -replace '\r?\n', '<br>') -replace '\|', '\`|'
-
-            Add-Content -Path $FullObsidianNotePath -Value "| $HighlightText | $($Entry.page) | [[$Date]] | $Time | $SafeNote |"
+            # HTML table row
+            Add-Content -Path $FullObsidianNotePath -Value "<tr><td>$HighlightText</td><td>$($Entry.page)</td><td>[[$Date]]</td><td>$Time</td><td>$SafeNote</td></tr>"
         }
+
+        # Close table
+        Add-Content -Path $FullObsidianNotePath -Value "</tbody></table>`n"
     }
-    # Update the object
+
+    # Mark JSON as processed
     $NoteContent | Add-Member -MemberType NoteProperty -Name "processed" -Value $true -Force
 
-    # Save back to JSON
+    # Save back to JSON file
     $NoteContent | ConvertTo-Json -Depth 20 | Set-Content -Path $BookNote.FullName -Encoding UTF8
-
 }
